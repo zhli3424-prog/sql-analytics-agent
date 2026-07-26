@@ -16,7 +16,7 @@ class Settings:
     )
     deepseek_api_key: str = os.getenv("DEEPSEEK_API_KEY", "")
     deepseek_base_url: str = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
-    deepseek_model: str = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
+    deepseek_model: str = os.getenv("DEEPSEEK_MODEL", "deepseek-v4-flash")
     query_timeout_ms: int = int(os.getenv("QUERY_TIMEOUT_MS", "5000"))
     max_result_rows: int = int(os.getenv("MAX_RESULT_ROWS", "200"))
     log_level: str = os.getenv("LOG_LEVEL", "INFO").upper()

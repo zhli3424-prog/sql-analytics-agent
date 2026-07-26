@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 from pathlib import Path
 
-from app.agent import AgentError, choose_chart, validate_question
+from app.agent import AgentError, choose_chart, model_options, validate_question
 from app.schema import ALLOWED_TABLES, public_schema
 from app.sql_safety import UnsafeSQL, validate_and_limit
 
@@ -50,6 +50,9 @@ class SQLSafetyTests(unittest.TestCase):
             with self.subTest(question=question), self.assertRaises(AgentError):
                 validate_question(question)
 
+    def test_tool_calling_disables_thinking_mode(self):
+        self.assertEqual(model_options()["extra_body"], {"thinking": {"type": "disabled"}})
+
 
 class PresentationTests(unittest.TestCase):
     def test_time_series_uses_line_chart(self):
@@ -67,7 +70,10 @@ class PresentationTests(unittest.TestCase):
 
 class IsolationTests(unittest.TestCase):
     def test_compose_resources_do_not_overlap_rag_project(self):
-        compose = (Path(__file__).resolve().parents[1] / "docker-compose.yml").read_text(encoding="utf-8")
+        compose_path = Path(__file__).resolve().parents[1] / "docker-compose.yml"
+        if not compose_path.exists():
+            self.skipTest("compose file is intentionally absent from the runtime image")
+        compose = compose_path.read_text(encoding="utf-8")
         self.assertIn("name: sql-analytics-agent", compose)
         self.assertIn('"8010:8010"', compose)
         self.assertIn("sql-analytics-agent-postgres-data", compose)

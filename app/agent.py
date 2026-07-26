@@ -43,6 +43,13 @@ def client() -> OpenAI:
     return OpenAI(api_key=settings.deepseek_api_key, base_url=settings.deepseek_base_url, timeout=30)
 
 
+def model_options() -> dict[str, Any]:
+    return {
+        "model": settings.deepseek_model,
+        "extra_body": {"thinking": {"type": "disabled"}},
+    }
+
+
 def run_agent(question: str) -> dict[str, Any]:
     validate_question(question)
     llm = client()
@@ -63,7 +70,7 @@ def run_agent(question: str) -> dict[str, Any]:
 
     while attempts < 2:
         response = llm.chat.completions.create(
-            model=settings.deepseek_model,
+            **model_options(),
             messages=messages,
             tools=[RUN_SQL_TOOL],
             tool_choice={"type": "function", "function": {"name": "run_sql"}},
@@ -123,7 +130,7 @@ def summarize(llm: OpenAI, question: str, sql: str, columns: list[str], rows: li
     sample = {"columns": columns, "rows": rows[:50], "total_returned_rows": len(rows)}
     try:
         response = llm.chat.completions.create(
-            model=settings.deepseek_model,
+            **model_options(),
             messages=[
                 {
                     "role": "system",
