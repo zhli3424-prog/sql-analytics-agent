@@ -15,7 +15,14 @@ function Set-RandomSecret {
     $pattern = "(?m)^" + [regex]::Escape($Name) + "=.*$"
     $existing = [regex]::Match($content, $pattern)
     if (-not $existing.Success -or $existing.Value -match "=change-this-") {
-        $value = [Convert]::ToBase64String([Security.Cryptography.RandomNumberGenerator]::GetBytes($Bytes))
+        $buffer = New-Object byte[] $Bytes
+        $generator = [Security.Cryptography.RandomNumberGenerator]::Create()
+        try {
+            $generator.GetBytes($buffer)
+        } finally {
+            $generator.Dispose()
+        }
+        $value = [Convert]::ToBase64String($buffer)
         $line = "$Name=$value"
         if ($existing.Success) {
             $content = [regex]::Replace($content, $pattern, $line)
