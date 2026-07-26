@@ -1,0 +1,42 @@
+name: sql-analytics-agent
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-analytics_agent}
+      POSTGRES_USER: ${POSTGRES_USER:-analytics_owner}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-this-owner-password}
+      ANALYTICS_READ_PASSWORD: ${ANALYTICS_READ_PASSWORD:-change-this-reader-password}
+    volumes:
+      - analytics_postgres_data:/var/lib/postgresql/data
+      - ./db/init-reader.sh:/docker-entrypoint-initdb.d/01-init-reader.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-analytics_owner} -d ${POSTGRES_DB:-analytics_agent}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  api:
+    build: .
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-analytics_owner}:${POSTGRES_PASSWORD:-change-this-owner-password}@postgres:5432/${POSTGRES_DB:-analytics_agent}
+      ANALYTICS_READ_URL: postgresql+psycopg://analytics_reader:${ANALYTICS_READ_PASSWORD:-change-this-reader-password}@postgres:5432/${POSTGRES_DB:-analytics_agent}
+    ports:
+      - "8010:8010"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8010/api/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+volumes:
+  analytics_postgres_data:
+    name: sql-analytics-agent-postgres-data
+

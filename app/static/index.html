@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>电商 SQL 数据分析 Agent</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <main>
+    <header>
+      <p class="eyebrow">SQL ANALYTICS AGENT</p>
+      <h1>用自然语言，查询真实经营数据</h1>
+      <p class="intro">Agent 只使用只读账号执行经过安全检查的 SQL，并展示查询、结果和 Trace。</p>
+    </header>
+
+    <section class="card query-card">
+      <label for="question">你想分析什么？</label>
+      <div class="query-row">
+        <textarea id="question" rows="3" placeholder="例如：最近 6 个月每月的 GMV 和订单数是多少？"></textarea>
+        <button id="submit">开始分析</button>
+      </div>
+      <div class="examples">
+        <button class="example">销售额最高的五个商品类别是什么？</button>
+        <button class="example">最近六个月每月的 GMV 和有效订单数</button>
+        <button class="example">各地区的退款率是多少？</button>
+      </div>
+      <p id="status" role="status" aria-live="polite"></p>
+    </section>
+
+    <section id="result" class="hidden">
+      <div class="card summary-card">
+        <div>
+          <p class="eyebrow">ANALYSIS</p>
+          <h2>分析结论</h2>
+        </div>
+        <p id="summary"></p>
+        <p id="meta" class="meta"></p>
+      </div>
+
+      <div id="chart-card" class="card hidden">
+        <h2 id="chart-title">数据图表</h2>
+        <svg id="chart" viewBox="0 0 900 360" role="img"></svg>
+      </div>
+
+      <div class="card">
+        <div class="section-heading">
+          <h2>生成的 SQL</h2>
+          <button id="copy-sql" class="secondary">复制</button>
+        </div>
+        <pre><code id="sql"></code></pre>
+      </div>
+
+      <div class="card">
+        <h2>查询结果</h2>
+        <div class="table-wrap"><table id="data-table"></table></div>
+      </div>
+    </section>
+  </main>
+  <script src="/static/app.js"></script>
+</body>
+</html>
+
