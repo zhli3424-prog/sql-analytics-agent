@@ -32,10 +32,13 @@
         <div class="user-panel">
           <span id="schema-badge" class="badge">正在读取数据源…</span>
           <span id="current-user"></span>
+          <button id="show-analytics" class="secondary">数据分析</button>
+          <button id="show-import" class="secondary hidden">数据导入</button>
           <button id="logout" class="secondary">退出</button>
         </div>
       </header>
 
+      <section id="analytics-view">
       <section class="card query-card">
         <label for="question">你想分析什么？</label>
         <div class="query-row">
@@ -100,6 +103,55 @@
           </div>
         </section>
       </div>
+      </section>
+
+      <section id="import-view" class="hidden">
+        <div class="card">
+          <p class="eyebrow">ADMIN DATA IMPORT</p>
+          <h2>管理员数据导入</h2>
+          <p class="intro">先下载模板并按依赖顺序导入。系统会在写入前检查表头、类型、空值和行数；相同 ID 将更新，新的 ID 将新增。</p>
+          <div id="import-order" class="badge-row"></div>
+        </div>
+
+        <div class="card">
+          <form id="import-form">
+            <div class="import-grid">
+              <div>
+                <label for="target-table">目标表</label>
+                <select id="target-table" required></select>
+              </div>
+              <div>
+                <label for="import-file">CSV 或 Excel 文件</label>
+                <input id="import-file" type="file" accept=".csv,.xlsx" required>
+              </div>
+            </div>
+            <div class="import-actions">
+              <button id="preview-import" type="submit">预览并校验</button>
+              <button id="download-template" type="button" class="secondary">下载当前表模板</button>
+            </div>
+          </form>
+          <p id="import-status" role="status" aria-live="polite"></p>
+        </div>
+
+        <div id="import-preview-card" class="card hidden">
+          <div class="section-heading">
+            <div>
+              <h2>导入预览</h2>
+              <p id="import-summary" class="meta"></p>
+            </div>
+            <button id="confirm-import">确认导入</button>
+          </div>
+          <div class="table-wrap"><table id="import-preview-table"></table></div>
+        </div>
+
+        <div class="card">
+          <div class="section-heading">
+            <h2>导入记录</h2>
+            <button id="refresh-imports" class="secondary">刷新</button>
+          </div>
+          <div class="table-wrap"><table id="import-history-table"></table></div>
+        </div>
+      </section>
     </div>
   </main>
   <script src="/static/app.js"></script>

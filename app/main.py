@@ -3,23 +3,26 @@ from __future__ import annotations
 import csv
 import io
 import logging
+import re
 import time
 from collections import defaultdict, deque
 from contextlib import asynccontextmanager
 from pathlib import Path
 from threading import Lock
 
-from fastapi import Cookie, Depends, FastAPI, HTTPException, Response, status
+from fastapi import Cookie, Depends, FastAPI, File, Form, HTTPException, Response, UploadFile, status
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from sqlalchemy import select, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.agent import AgentError, run_agent
 from app.config import settings
 from app.database import get_session, init_database, reader_engine
-from app.models import QueryTrace
+from app.importing import ImportValidationError, TABLE_SPECS, parse_import, preview_rows, table_metadata, upsert_rows, validate_rows
+from app.models import ImportJob, QueryTrace
 from app.schema import catalog, public_schema, validate_data_source_config
 from app.security import COOKIE_NAME, create_session, read_session, validate_security_config, verify_login
 from app.seed import seed_if_empty
@@ -77,6 +80,12 @@ def query_user(username: str = Depends(current_user)) -> str:
     return username
 
 
+def admin_user(username: str = Depends(current_user)) -> str:
+    if settings.app_role != "admin" or not settings.admin_import_enabled:
+        raise HTTPException(status_code=403, detail="需要管理员权限")
+    return username
+
+
 def owned_trace(trace_id: int, username: str, session: Session) -> QueryTrace:
     trace = session.scalar(
         select(QueryTrace).where(QueryTrace.id == trace_id, QueryTrace.user_name == username)
@@ -105,6 +114,35 @@ def trace_public(trace: QueryTrace, include_result: bool = False) -> dict:
     return value
 
 
+def import_public(job: ImportJob) -> dict:
+    return {
+        "id": job.id,
+        "filename": job.filename,
+        "target_table": job.target_table,
+        "row_count": job.row_count,
+        "status": job.status,
+        "error": job.error,
+        "created_at": job.created_at.isoformat() if job.created_at else None,
+    }
+
+
+async def read_import_file(file: UploadFile) -> tuple[str, bytes]:
+    safe_name = re.split(r"[/\\]", file.filename or "upload")[-1]
+    content = await file.read(settings.max_import_bytes + 1)
+    await file.close()
+    if len(content) > settings.max_import_bytes:
+        raise HTTPException(status_code=413, detail=f"文件不能超过 {settings.max_import_bytes // 1024 // 1024} MB")
+    return safe_name, content
+
+
+def parsed_rows(table_name: str, filename: str, content: bytes) -> list[dict]:
+    try:
+        headers, raw_rows = parse_import(filename, content)
+        return validate_rows(table_name, headers, raw_rows)
+    except ImportValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
 @app.get("/")
 def index() -> FileResponse:
     return FileResponse(STATIC_DIR / "index.html")
@@ -122,7 +160,7 @@ def login(payload: LoginRequest, response: Response) -> dict:
         samesite="strict",
         secure=settings.cookie_secure,
     )
-    return {"user": {"username": payload.username}}
+    return {"user": {"username": payload.username, "role": settings.app_role}}
 
 
 @app.post("/api/auth/logout")
@@ -133,7 +171,7 @@ def logout(response: Response) -> dict:
 
 @app.get("/api/auth/me")
 def me(username: str = Depends(current_user)) -> dict:
-    return {"user": {"username": username}}
+    return {"user": {"username": username, "role": settings.app_role}}
 
 
 @app.get("/api/analytics/schema")
@@ -230,6 +268,101 @@ def history_csv(
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="sql-agent-trace-{trace.id}.csv"'},
     )
+
+
+@app.get("/api/admin/import/tables")
+def import_tables(_: str = Depends(admin_user)) -> dict:
+    return {
+        "tables": table_metadata(),
+        "formats": [".csv", ".xlsx"],
+        "max_bytes": settings.max_import_bytes,
+        "max_rows": settings.max_import_rows,
+        "recommended_order": list(TABLE_SPECS),
+    }
+
+
+@app.get("/api/admin/import/template/{table_name}")
+def import_template(table_name: str, _: str = Depends(admin_user)) -> Response:
+    spec = TABLE_SPECS.get(table_name)
+    if spec is None:
+        raise HTTPException(status_code=404, detail="目标表不存在")
+    output = io.StringIO()
+    csv.writer(output).writerow(spec.columns)
+    return Response(
+        content="\ufeff" + output.getvalue(),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{table_name}-template.csv"'},
+    )
+
+
+@app.post("/api/admin/import/preview")
+async def import_preview(
+    target_table: str = Form(...),
+    file: UploadFile = File(...),
+    _: str = Depends(admin_user),
+) -> dict:
+    filename, content = await read_import_file(file)
+    rows = parsed_rows(target_table, filename, content)
+    return {
+        "filename": filename,
+        "target_table": target_table,
+        "row_count": len(rows),
+        "columns": list(TABLE_SPECS[target_table].columns),
+        "preview": preview_rows(rows),
+    }
+
+
+@app.post("/api/admin/import/execute")
+async def import_execute(
+    target_table: str = Form(...),
+    file: UploadFile = File(...),
+    username: str = Depends(admin_user),
+    session: Session = Depends(get_session),
+) -> dict:
+    filename, content = await read_import_file(file)
+    rows = parsed_rows(target_table, filename, content)
+    job = ImportJob(
+        user_name=username,
+        filename=filename,
+        target_table=target_table,
+        row_count=0,
+        status="running",
+    )
+    session.add(job)
+    session.commit()
+    try:
+        upsert_rows(session, target_table, rows)
+        job.status = "success"
+        job.row_count = len(rows)
+        session.commit()
+        return {"import": import_public(job)}
+    except IntegrityError as exc:
+        session.rollback()
+        job = session.get(ImportJob, job.id)
+        job.status = "failed"
+        job.error = "外键、唯一性或字段约束不满足"
+        session.commit()
+        raise HTTPException(status_code=409, detail=f"导入失败：{job.error}") from exc
+    except Exception as exc:
+        session.rollback()
+        job = session.get(ImportJob, job.id)
+        job.status = "failed"
+        job.error = str(exc)[:500]
+        session.commit()
+        raise
+
+
+@app.get("/api/admin/import/history")
+def import_history(
+    limit: int = 20,
+    _: str = Depends(admin_user),
+    session: Session = Depends(get_session),
+) -> dict:
+    safe_limit = min(max(limit, 1), 100)
+    jobs = session.scalars(
+        select(ImportJob).order_by(ImportJob.created_at.desc()).limit(safe_limit)
+    ).all()
+    return {"imports": [import_public(job) for job in jobs]}
 
 
 @app.get("/api/health")

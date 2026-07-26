@@ -8,6 +8,7 @@ const statusText = document.querySelector("#status");
 const result = document.querySelector("#result");
 const emptyState = document.querySelector("#empty-state");
 let currentTraceId = null;
+let importMetadata = null;
 
 async function api(url, options = {}) {
   const response = await fetch(url, options);
@@ -33,6 +34,9 @@ async function showApp(user) {
   loginCard.classList.add("hidden");
   appShell.classList.remove("hidden");
   document.querySelector("#current-user").textContent = user.username;
+  const importButton = document.querySelector("#show-import");
+  importButton.classList.toggle("hidden", user.role !== "admin");
+  if (user.role === "admin") await loadImportMetadata();
   await Promise.all([loadHistory(), loadSchema()]);
 }
 
@@ -103,6 +107,14 @@ document.querySelector("#download-csv").addEventListener("click", () => {
 });
 
 document.querySelector("#refresh-history").addEventListener("click", loadHistory);
+document.querySelector("#show-analytics").addEventListener("click", () => showView("analytics"));
+document.querySelector("#show-import").addEventListener("click", () => showView("import"));
+
+function showView(name) {
+  document.querySelector("#analytics-view").classList.toggle("hidden", name !== "analytics");
+  document.querySelector("#import-view").classList.toggle("hidden", name !== "import");
+  if (name === "import") loadImportHistory();
+}
 
 async function loadSchema() {
   try {
@@ -165,7 +177,10 @@ function render(data) {
 }
 
 function renderTable(columns, rows) {
-  const table = document.querySelector("#data-table");
+  renderIntoTable(document.querySelector("#data-table"), columns, rows);
+}
+
+function renderIntoTable(table, columns, rows) {
   table.textContent = "";
   const head = table.createTHead().insertRow();
   columns.forEach((column) => {
@@ -181,6 +196,111 @@ function renderTable(columns, rows) {
       td.textContent = value ?? "";
     });
   });
+}
+
+async function loadImportMetadata() {
+  try {
+    importMetadata = await api("/api/admin/import/tables");
+    const select = document.querySelector("#target-table");
+    select.textContent = "";
+    importMetadata.tables.forEach((table) => {
+      const option = document.createElement("option");
+      option.value = table.name;
+      option.textContent = `${table.name}（${table.columns.length} 个字段）`;
+      select.appendChild(option);
+    });
+    const order = document.querySelector("#import-order");
+    order.textContent = "";
+    importMetadata.recommended_order.forEach((name, index) => {
+      const badge = document.createElement("span");
+      badge.className = "badge";
+      badge.textContent = `${index + 1}. ${name}`;
+      order.appendChild(badge);
+    });
+  } catch (error) {
+    document.querySelector("#import-status").textContent = error.message;
+  }
+}
+
+document.querySelector("#import-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const file = document.querySelector("#import-file").files[0];
+  const target = document.querySelector("#target-table").value;
+  const status = document.querySelector("#import-status");
+  if (!file || !target) {
+    status.textContent = "请选择目标表和文件。";
+    return;
+  }
+  const form = new FormData();
+  form.append("target_table", target);
+  form.append("file", file);
+  status.textContent = "正在解析和校验文件…";
+  document.querySelector("#preview-import").disabled = true;
+  try {
+    const data = await api("/api/admin/import/preview", {method: "POST", body: form});
+    document.querySelector("#import-summary").textContent =
+      `${data.filename} · ${data.target_table} · 共 ${data.row_count} 行（下方显示前 ${data.preview.length} 行）`;
+    const rows = data.preview.map((row) => data.columns.map((column) => row[column]));
+    renderIntoTable(document.querySelector("#import-preview-table"), data.columns, rows);
+    document.querySelector("#import-preview-card").classList.remove("hidden");
+    status.textContent = "校验通过。确认数据无误后再导入。";
+  } catch (error) {
+    document.querySelector("#import-preview-card").classList.add("hidden");
+    status.textContent = error.message;
+  } finally {
+    document.querySelector("#preview-import").disabled = false;
+  }
+});
+
+document.querySelector("#confirm-import").addEventListener("click", async () => {
+  const file = document.querySelector("#import-file").files[0];
+  const target = document.querySelector("#target-table").value;
+  const button = document.querySelector("#confirm-import");
+  const status = document.querySelector("#import-status");
+  if (!file || !target) return;
+  if (!window.confirm(`确认把 ${file.name} 导入 ${target}？相同 ID 会被更新。`)) return;
+  const form = new FormData();
+  form.append("target_table", target);
+  form.append("file", file);
+  button.disabled = true;
+  status.textContent = "正在事务导入，请勿关闭页面…";
+  try {
+    const data = await api("/api/admin/import/execute", {method: "POST", body: form});
+    status.textContent = `导入成功：${data.import.row_count} 行，记录 #${data.import.id}`;
+    document.querySelector("#import-preview-card").classList.add("hidden");
+    document.querySelector("#import-form").reset();
+    await Promise.all([loadImportHistory(), loadSchema()]);
+  } catch (error) {
+    status.textContent = error.message;
+  } finally {
+    button.disabled = false;
+  }
+});
+
+document.querySelector("#download-template").addEventListener("click", () => {
+  const target = document.querySelector("#target-table").value;
+  if (target) window.location.href = `/api/admin/import/template/${target}`;
+});
+
+document.querySelector("#refresh-imports").addEventListener("click", loadImportHistory);
+
+async function loadImportHistory() {
+  const table = document.querySelector("#import-history-table");
+  try {
+    const data = await api("/api/admin/import/history?limit=30");
+    const columns = ["id", "filename", "target_table", "row_count", "status", "created_at"];
+    const rows = data.imports.map((item) => [
+      item.id,
+      item.filename,
+      item.target_table,
+      item.row_count,
+      item.status,
+      formatTime(item.created_at),
+    ]);
+    renderIntoTable(table, columns, rows);
+  } catch (error) {
+    renderIntoTable(table, ["错误"], [[error.message]]);
+  }
 }
 
 function inferChart(columns, rows) {

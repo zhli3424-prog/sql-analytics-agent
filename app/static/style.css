@@ -31,6 +31,8 @@ h2 { margin: 0 0 18px; font-size: 21px; }
 label { display: block; margin-bottom: 10px; font-weight: 700; }
 input { width: 100%; margin-bottom: 18px; padding: 13px 14px; border: 1px solid var(--line); border-radius: 10px; font: inherit; }
 input:focus { outline: 3px solid rgba(8, 127, 91, .14); border-color: var(--green); }
+select { width: 100%; min-height: 48px; margin-bottom: 18px; padding: 0 13px; border: 1px solid var(--line); border-radius: 10px; background: white; font: inherit; }
+select:focus { outline: 3px solid rgba(8, 127, 91, .14); border-color: var(--green); }
 .login-card { width: min(480px, 100%); margin: 9vh auto 0; }
 .login-card h1 { font-size: 38px; }
 .login-card form button { width: 100%; min-height: 48px; }
@@ -47,6 +49,10 @@ input:focus { outline: 3px solid rgba(8, 127, 91, .14); border-color: var(--gree
 .history-item span { color: var(--muted); font-size: 11px; }
 .empty-state { min-height: 220px; display: grid; place-content: center; text-align: center; color: var(--muted); }
 .error { color: #a13232; }
+.import-grid { display: grid; grid-template-columns: 1fr 1.5fr; gap: 18px; }
+.import-actions, .badge-row { display: flex; flex-wrap: wrap; gap: 10px; }
+.import-actions button { min-height: 46px; }
+#import-status { min-height: 24px; color: var(--green-dark); }
 .query-row { display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: stretch; }
 textarea { width: 100%; resize: vertical; padding: 16px; border: 1px solid var(--line); border-radius: 12px; background: #fff; color: var(--ink); font: inherit; line-height: 1.5; }
 textarea:focus { outline: 3px solid rgba(8, 127, 91, .14); border-color: var(--green); }
@@ -76,7 +82,7 @@ tr:last-child td { border-bottom: 0; }
 
 @media (max-width: 700px) {
   main { padding-top: 36px; }
-  .query-row, .summary-card, .workspace { grid-template-columns: 1fr; }
+  .query-row, .summary-card, .workspace, .import-grid { grid-template-columns: 1fr; }
   .query-row > button { min-height: 52px; }
   .summary-card .meta { grid-column: 1; }
   .card { padding: 20px; }

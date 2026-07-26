@@ -13,6 +13,7 @@
 - 可编辑的业务指标口径文件，避免“SQL 正确、业务定义错误”。
 - 操作者、问题、SQL、结果、摘要、耗时、重试和错误审计。
 - 查询历史、历史结果复查和 UTF-8 CSV 导出。
+- 管理员 CSV/XLSX 导入、导入前预览、字段校验、主键 Upsert 和导入审计。
 - 表格与原生 SVG 图表；优先使用名称字段而不是 ID 作为横轴。
 - 30 题真实执行结果评测和危险请求拦截测试。
 
@@ -79,6 +80,24 @@ DEEPSEEK_MODEL=deepseek-v4-flash
 
 打开 <http://127.0.0.1:8010>，使用 `.env` 中的 `APP_USERNAME` 和 `APP_PASSWORD` 登录。
 
+## 管理员数据导入
+
+登录后点击右上角“数据导入”。当前环境变量 `APP_ROLE=admin` 的账号才能访问。
+
+1. 选择目标表并下载 CSV 模板。
+2. 按模板填写数据；支持 UTF-8/GB18030 CSV 和 `.xlsx`。
+3. 上传后先预览校验，不会立即写入。
+4. 确认后在一个数据库事务中导入；相同 `id` 更新，新 `id` 新增。
+5. 在导入记录中检查文件、目标表、行数、状态和时间。
+
+推荐依赖顺序：
+
+```text
+categories → customers → products → orders → order_items → payments → refunds
+```
+
+单文件默认不超过 10 MB、100,000 行。导入不会删除未出现在文件中的旧数据，也不提供清空整库按钮。真实生产数据量较大时，应由正式 ETL/ELT 管道写入分析库，本页面用于受控的小批量维护和补数。
+
 后台启动：
 
 ```powershell
@@ -141,6 +160,11 @@ docker compose -p sql-analytics-agent up -d --build --force-recreate api
 | `GET` | `/api/analytics/history` | 是 | 当前用户查询历史 |
 | `GET` | `/api/analytics/history/{id}` | 是 | 历史结果详情 |
 | `GET` | `/api/analytics/history/{id}/csv` | 是 | 导出历史结果 |
+| `GET` | `/api/admin/import/tables` | 管理员 | 导入表与字段元数据 |
+| `GET` | `/api/admin/import/template/{table}` | 管理员 | 下载 CSV 模板 |
+| `POST` | `/api/admin/import/preview` | 管理员 | 解析并预览 CSV/XLSX |
+| `POST` | `/api/admin/import/execute` | 管理员 | 事务导入或更新 |
+| `GET` | `/api/admin/import/history` | 管理员 | 导入审计记录 |
 | `GET` | `/api/health` | 否 | 数据库、模型配置与版本状态 |
 
 ## 测试与评测

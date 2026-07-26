@@ -37,10 +37,14 @@ class Settings:
     max_result_rows: int = int(os.getenv("MAX_RESULT_ROWS", "200"))
     query_rate_limit_per_minute: int = int(os.getenv("QUERY_RATE_LIMIT_PER_MINUTE", "20"))
     app_username: str = os.getenv("APP_USERNAME", "analyst")
+    app_role: str = os.getenv("APP_ROLE", "admin")
     app_password: str = os.getenv("APP_PASSWORD", "change-this-app-password")
     session_secret: str = os.getenv("SESSION_SECRET", "change-this-session-secret")
     session_ttl_seconds: int = int(os.getenv("SESSION_TTL_SECONDS", "28800"))
     cookie_secure: bool = _bool_env("COOKIE_SECURE")
+    admin_import_enabled: bool = _bool_env("ADMIN_IMPORT_ENABLED", True)
+    max_import_bytes: int = int(os.getenv("MAX_IMPORT_BYTES", str(10 * 1024 * 1024)))
+    max_import_rows: int = int(os.getenv("MAX_IMPORT_ROWS", "100000"))
     log_level: str = os.getenv("LOG_LEVEL", "INFO").upper()
 
 
