@@ -5,12 +5,12 @@ import logging
 import re
 from typing import Any
 
-from openai import OpenAI
+from openai import APIConnectionError, APIStatusError, OpenAI
 from sqlalchemy.exc import DBAPIError
 
 from app.config import settings
 from app.database import execute_read_only
-from app.schema import SCHEMA_DESCRIPTION
+from app.schema import schema_description
 from app.sql_safety import UnsafeSQL, validate_and_limit
 
 logger = logging.getLogger(__name__)
@@ -50,6 +50,15 @@ def model_options() -> dict[str, Any]:
     }
 
 
+def call_model(llm: OpenAI, **kwargs):
+    try:
+        return llm.chat.completions.create(**model_options(), **kwargs)
+    except APIStatusError as exc:
+        raise AgentError(f"模型服务请求失败（HTTP {exc.status_code}），请检查模型、额度或账号权限") from exc
+    except APIConnectionError as exc:
+        raise AgentError("无法连接模型服务，请检查网络和代理") from exc
+
+
 def run_agent(question: str) -> dict[str, Any]:
     validate_question(question)
     llm = client()
@@ -58,7 +67,7 @@ def run_agent(question: str) -> dict[str, Any]:
         "只生成 PostgreSQL SELECT/WITH，一次一条，不得访问给定 schema 之外的对象。"
         "字段不确定时以 schema 为准。金额保留两位小数，趋势结果按时间升序。"
         "如果工具返回错误，修正 SQL 后最多再调用一次。\n\n"
-        f"{SCHEMA_DESCRIPTION}"
+        f"{schema_description()}"
     )
     messages: list[dict[str, Any]] = [
         {"role": "system", "content": system},
@@ -69,8 +78,8 @@ def run_agent(question: str) -> dict[str, Any]:
     last_error: str | None = None
 
     while attempts < 2:
-        response = llm.chat.completions.create(
-            **model_options(),
+        response = call_model(
+            llm,
             messages=messages,
             tools=[RUN_SQL_TOOL],
             tool_choice={"type": "function", "function": {"name": "run_sql"}},
@@ -129,8 +138,8 @@ def summarize(llm: OpenAI, question: str, sql: str, columns: list[str], rows: li
         return "查询成功，但当前条件下没有匹配数据。"
     sample = {"columns": columns, "rows": rows[:50], "total_returned_rows": len(rows)}
     try:
-        response = llm.chat.completions.create(
-            **model_options(),
+        response = call_model(
+            llm,
             messages=[
                 {
                     "role": "system",
@@ -160,7 +169,16 @@ def choose_chart(columns: list[str], rows: list[list[object]]) -> dict[str, Any]
     if not numeric_indexes:
         return None
     y_index = numeric_indexes[-1]
-    x_index = next((index for index in range(len(columns)) if index != y_index), None)
+    label_indexes = [
+        index
+        for index in range(len(columns))
+        if index != y_index
+        and not columns[index].lower().endswith("_id")
+        and any(not isinstance(row[index], (int, float)) for row in rows)
+    ]
+    x_index = label_indexes[0] if label_indexes else next(
+        (index for index in range(len(columns)) if index != y_index), None
+    )
     if x_index is None:
         return None
     x_name = columns[x_index]

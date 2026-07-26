@@ -43,7 +43,7 @@ def validate_and_limit(sql: str) -> tuple[str, str]:
         schema = (table.db or "").lower()
         if name in cte_names:
             continue
-        if name not in ALLOWED_TABLES or schema not in {"", "analytics"}:
+        if name not in ALLOWED_TABLES or schema not in {"", settings.analytics_schema.lower()}:
             raise UnsafeSQL(f"无权访问表：{table.sql(dialect='postgres')}")
 
     for function in statement.find_all(exp.Func):

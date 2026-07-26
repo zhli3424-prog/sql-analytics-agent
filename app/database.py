@@ -25,6 +25,11 @@ def init_database(max_wait_seconds: int = 45) -> None:
                 connection.execute(text("CREATE SCHEMA IF NOT EXISTS app"))
             Base.metadata.create_all(owner_engine)
             with owner_engine.begin() as connection:
+                connection.execute(text("ALTER TABLE app.query_traces ADD COLUMN IF NOT EXISTS user_name VARCHAR(80)"))
+                connection.execute(text("ALTER TABLE app.query_traces ADD COLUMN IF NOT EXISTS summary TEXT"))
+                connection.execute(text("ALTER TABLE app.query_traces ADD COLUMN IF NOT EXISTS result_columns JSON DEFAULT '[]'"))
+                connection.execute(text("ALTER TABLE app.query_traces ADD COLUMN IF NOT EXISTS result_rows JSON DEFAULT '[]'"))
+                connection.execute(text("CREATE INDEX IF NOT EXISTS ix_query_traces_user_name ON app.query_traces (user_name)"))
                 connection.execute(text("GRANT SELECT ON ALL TABLES IN SCHEMA analytics TO analytics_reader"))
                 connection.execute(text("REVOKE ALL ON SCHEMA app FROM analytics_reader"))
             return
@@ -57,4 +62,3 @@ def json_value(value: object) -> object:
     if hasattr(value, "isoformat"):
         return value.isoformat()
     return value
-

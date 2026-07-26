@@ -8,56 +8,100 @@
 </head>
 <body>
   <main>
-    <header>
+    <section id="login-card" class="card login-card">
       <p class="eyebrow">SQL ANALYTICS AGENT</p>
-      <h1>用自然语言，查询真实经营数据</h1>
-      <p class="intro">Agent 只使用只读账号执行经过安全检查的 SQL，并展示查询、结果和 Trace。</p>
-    </header>
-
-    <section class="card query-card">
-      <label for="question">你想分析什么？</label>
-      <div class="query-row">
-        <textarea id="question" rows="3" placeholder="例如：最近 6 个月每月的 GMV 和订单数是多少？"></textarea>
-        <button id="submit">开始分析</button>
-      </div>
-      <div class="examples">
-        <button class="example">销售额最高的五个商品类别是什么？</button>
-        <button class="example">最近六个月每月的 GMV 和有效订单数</button>
-        <button class="example">各地区的退款率是多少？</button>
-      </div>
-      <p id="status" role="status" aria-live="polite"></p>
+      <h1>登录数据分析工作台</h1>
+      <p class="intro">使用受保护的内部账号访问只读经营数据。</p>
+      <form id="login-form">
+        <label for="username">用户名</label>
+        <input id="username" name="username" autocomplete="username" required>
+        <label for="password">密码</label>
+        <input id="password" name="password" type="password" autocomplete="current-password" required>
+        <button type="submit">登录</button>
+      </form>
+      <p id="login-status" role="status" aria-live="polite"></p>
     </section>
 
-    <section id="result" class="hidden">
-      <div class="card summary-card">
+    <div id="app-shell" class="hidden">
+      <header class="topbar">
         <div>
-          <p class="eyebrow">ANALYSIS</p>
-          <h2>分析结论</h2>
+          <p class="eyebrow">SQL ANALYTICS AGENT</p>
+          <h1>用自然语言，查询真实经营数据</h1>
+          <p class="intro">只读查询、SQL 安全检查、结果追溯与导出。</p>
         </div>
-        <p id="summary"></p>
-        <p id="meta" class="meta"></p>
-      </div>
-
-      <div id="chart-card" class="card hidden">
-        <h2 id="chart-title">数据图表</h2>
-        <svg id="chart" viewBox="0 0 900 360" role="img"></svg>
-      </div>
-
-      <div class="card">
-        <div class="section-heading">
-          <h2>生成的 SQL</h2>
-          <button id="copy-sql" class="secondary">复制</button>
+        <div class="user-panel">
+          <span id="schema-badge" class="badge">正在读取数据源…</span>
+          <span id="current-user"></span>
+          <button id="logout" class="secondary">退出</button>
         </div>
-        <pre><code id="sql"></code></pre>
-      </div>
+      </header>
 
-      <div class="card">
-        <h2>查询结果</h2>
-        <div class="table-wrap"><table id="data-table"></table></div>
+      <section class="card query-card">
+        <label for="question">你想分析什么？</label>
+        <div class="query-row">
+          <textarea id="question" rows="3" placeholder="例如：最近 6 个月每月的 GMV 和有效订单数是多少？"></textarea>
+          <button id="submit">开始分析</button>
+        </div>
+        <div class="examples">
+          <button class="example">销售额最高的五个商品类别是什么？</button>
+          <button class="example">最近六个月每月的 GMV 和有效订单数</button>
+          <button class="example">各地区的退款率是多少？</button>
+        </div>
+        <p id="status" role="status" aria-live="polite"></p>
+      </section>
+
+      <div class="workspace">
+        <aside class="card history-card">
+          <div class="section-heading">
+            <h2>查询历史</h2>
+            <button id="refresh-history" class="secondary">刷新</button>
+          </div>
+          <div id="history-list" class="history-list">
+            <p class="muted">暂无查询记录</p>
+          </div>
+        </aside>
+
+        <section>
+          <div id="empty-state" class="card empty-state">
+            <h2>开始一次可信的数据分析</h2>
+            <p>每次查询都会记录操作者、SQL、耗时、结果和 Trace，便于复查与审计。</p>
+          </div>
+
+          <div id="result" class="hidden">
+            <div class="card summary-card">
+              <div>
+                <p class="eyebrow">ANALYSIS</p>
+                <h2>分析结论</h2>
+              </div>
+              <p id="summary"></p>
+              <p id="meta" class="meta"></p>
+            </div>
+
+            <div id="chart-card" class="card hidden">
+              <h2 id="chart-title">数据图表</h2>
+              <svg id="chart" viewBox="0 0 900 360" role="img"></svg>
+            </div>
+
+            <div class="card">
+              <div class="section-heading">
+                <h2>生成的 SQL</h2>
+                <button id="copy-sql" class="secondary">复制 SQL</button>
+              </div>
+              <pre><code id="sql"></code></pre>
+            </div>
+
+            <div class="card">
+              <div class="section-heading">
+                <h2>查询结果</h2>
+                <button id="download-csv" class="secondary">下载 CSV</button>
+              </div>
+              <div class="table-wrap"><table id="data-table"></table></div>
+            </div>
+          </div>
+        </section>
       </div>
-    </section>
+    </div>
   </main>
   <script src="/static/app.js"></script>
 </body>
 </html>
-

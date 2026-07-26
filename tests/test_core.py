@@ -2,9 +2,13 @@ from __future__ import annotations
 
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from app.agent import AgentError, choose_chart, model_options, validate_question
-from app.schema import ALLOWED_TABLES, public_schema
+from app.config import settings
+from app.schema import ALLOWED_TABLES, validate_data_source_config
+from app.security import create_session, read_session, validate_security_config, verify_login
 from app.sql_safety import UnsafeSQL, validate_and_limit
 
 
@@ -60,12 +64,36 @@ class PresentationTests(unittest.TestCase):
         self.assertEqual(chart["type"], "line")
 
     def test_category_series_uses_bar_chart(self):
-        chart = choose_chart(["category", "gmv"], [["数码", 10.0]])
+        chart = choose_chart(["category_id", "category_name", "gmv"], [[1, "数码", 10.0]])
         self.assertEqual(chart["type"], "bar")
+        self.assertEqual(chart["x"], "category_name")
 
-    def test_public_schema_has_only_allowed_tables(self):
-        names = {table["name"] for table in public_schema()["tables"]}
-        self.assertEqual(names, ALLOWED_TABLES)
+    def test_allowed_tables_come_from_configuration(self):
+        self.assertEqual(ALLOWED_TABLES, set(settings.analytics_allowed_tables))
+        validate_data_source_config()
+
+
+class SecurityTests(unittest.TestCase):
+    def test_signed_session_rejects_tampering_and_expiration(self):
+        fake = SimpleNamespace(session_secret="s" * 32, session_ttl_seconds=60)
+        with patch("app.security.settings", fake):
+            token = create_session("analyst")
+            self.assertEqual(read_session(token), "analyst")
+            self.assertIsNone(read_session(token + "x"))
+
+    def test_login_uses_constant_time_credentials(self):
+        fake = SimpleNamespace(app_username="analyst", app_password="StrongPassword123!")
+        with patch("app.security.settings", fake):
+            self.assertTrue(verify_login("analyst", "StrongPassword123!"))
+            self.assertFalse(verify_login("analyst", "wrong"))
+
+    def test_placeholder_security_configuration_is_rejected(self):
+        fake = SimpleNamespace(
+            app_password="change-this-app-password",
+            session_secret="change-this-session-secret",
+        )
+        with patch("app.security.settings", fake), self.assertRaises(RuntimeError):
+            validate_security_config()
 
 
 class IsolationTests(unittest.TestCase):

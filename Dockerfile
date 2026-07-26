@@ -14,6 +14,7 @@ COPY app ./app
 COPY scripts ./scripts
 COPY eval ./eval
 COPY tests ./tests
+COPY config ./config
 
 USER app
 EXPOSE 8010

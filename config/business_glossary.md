@@ -1,0 +1,7 @@
+- 有效订单：`orders.status IN ('paid', 'shipped', 'completed')`。
+- GMV：有效订单中 `quantity * unit_price - discount_amount` 的合计。
+- 净销售额：GMV 减去退款金额。
+- 平均客单价：GMV 除以有效订单数。
+- 退款率：发生退款的订单数除以有效订单数。
+- 复购客户：至少拥有两笔有效订单的客户。
+- 除非问题明确要求，否则排除已取消订单。

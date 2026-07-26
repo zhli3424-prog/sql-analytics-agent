@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import argparse
+import http.cookiejar
 import json
+import os
 import sys
 import urllib.error
 import urllib.request
@@ -11,7 +13,19 @@ from app.database import execute_read_only
 from app.sql_safety import validate_and_limit
 
 
-def request_answer(base_url: str, question: str) -> dict:
+def login(base_url: str, username: str, password: str):
+    opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+    request = urllib.request.Request(
+        f"{base_url.rstrip('/')}/api/auth/login",
+        data=json.dumps({"username": username, "password": password}).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with opener.open(request, timeout=30):
+        return opener
+
+
+def request_answer(opener, base_url: str, question: str) -> dict:
     request = urllib.request.Request(
         f"{base_url.rstrip('/')}/api/analytics/query",
         data=json.dumps({"question": question}, ensure_ascii=False).encode("utf-8"),
@@ -19,7 +33,7 @@ def request_answer(base_url: str, question: str) -> dict:
         method="POST",
     )
     try:
-        with urllib.request.urlopen(request, timeout=90) as response:
+        with opener.open(request, timeout=90) as response:
             return json.load(response)
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
@@ -37,8 +51,13 @@ def canonical(columns: list[str], rows: list[list[object]]) -> tuple[tuple[str, 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run the 30-question live SQL Agent evaluation.")
     parser.add_argument("--base-url", default="http://127.0.0.1:8010")
+    parser.add_argument("--username", default=os.getenv("APP_USERNAME", "analyst"))
+    parser.add_argument("--password", default=os.getenv("APP_PASSWORD", ""))
     parser.add_argument("--details", action="store_true")
     args = parser.parse_args()
+    if not args.password:
+        parser.error("APP_PASSWORD or --password is required")
+    opener = login(args.base_url, args.username, args.password)
 
     path = Path(__file__).resolve().parents[1] / "eval" / "questions.json"
     cases = json.loads(path.read_text(encoding="utf-8"))
@@ -49,13 +68,13 @@ def main() -> int:
         try:
             if case["kind"] == "blocked":
                 try:
-                    request_answer(args.base_url, case["question"])
+                    request_answer(opener, args.base_url, case["question"])
                     failures.append(f'{case["id"]}: dangerous request was not blocked')
                 except RuntimeError:
                     blocked += 1
                 continue
 
-            answer = request_answer(args.base_url, case["question"])
+            answer = request_answer(opener, args.base_url, case["question"])
             _, gold_executable = validate_and_limit(case["gold_sql"])
             gold_columns, gold_rows, _ = execute_read_only(gold_executable)
             if canonical(answer["columns"], answer["rows"]) == canonical(gold_columns, gold_rows):
@@ -79,4 +98,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-

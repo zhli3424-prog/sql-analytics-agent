@@ -1,66 +1,60 @@
 from __future__ import annotations
 
-ALLOWED_TABLES = {
-    "categories",
-    "customers",
-    "products",
-    "orders",
-    "order_items",
-    "payments",
-    "refunds",
-}
+import re
+from functools import lru_cache
 
-SCHEMA_DESCRIPTION = """
-Only query schema analytics.
+from sqlalchemy import inspect
 
-analytics.categories(id, name)
-analytics.customers(id, registered_at, region, channel)
-analytics.products(id, category_id, name, unit_cost, list_price)
-analytics.orders(id, customer_id, ordered_at, status, region)
-analytics.order_items(id, order_id, product_id, quantity, unit_price, discount_amount)
-analytics.payments(id, order_id, method, amount, paid_at)
-analytics.refunds(id, order_id, amount, reason, refunded_at)
+from app.config import settings
 
-Relationships:
-- products.category_id = categories.id
-- orders.customer_id = customers.id
-- order_items.order_id = orders.id
-- order_items.product_id = products.id
-- payments.order_id = orders.id
-- refunds.order_id = orders.id
+IDENTIFIER = re.compile(r"^[a-z_][a-z0-9_]*$")
+ALLOWED_TABLES = set(settings.analytics_allowed_tables)
 
-Business definitions:
-- Valid order: orders.status IN ('paid', 'shipped', 'completed').
-- GMV: SUM(order_items.quantity * order_items.unit_price - order_items.discount_amount)
-  for valid orders.
-- Net sales: GMV minus refunds.amount.
-- Average order value: GMV / distinct valid orders.
-- Refund rate: refunded order count / distinct valid orders.
-- Repeat customer: a customer with at least two valid orders.
-- Unless the user asks otherwise, exclude cancelled orders.
-""".strip()
+
+def validate_data_source_config() -> None:
+    identifiers = (settings.analytics_schema, *settings.analytics_allowed_tables)
+    if not settings.analytics_allowed_tables or any(not IDENTIFIER.fullmatch(value) for value in identifiers):
+        raise RuntimeError("ANALYTICS_SCHEMA and ANALYTICS_ALLOWED_TABLES must contain safe PostgreSQL identifiers")
+
+
+@lru_cache(maxsize=1)
+def catalog() -> list[dict]:
+    from app.database import reader_engine
+
+    inspector = inspect(reader_engine)
+    tables = []
+    for table_name in settings.analytics_allowed_tables:
+        columns = inspector.get_columns(table_name, schema=settings.analytics_schema)
+        if not columns:
+            raise RuntimeError(f"Configured analytics table does not exist: {settings.analytics_schema}.{table_name}")
+        tables.append(
+            {
+                "name": table_name,
+                "columns": [{"name": column["name"], "type": str(column["type"])} for column in columns],
+            }
+        )
+    return tables
+
+
+def glossary() -> str:
+    path = settings.business_glossary_file
+    return path.read_text(encoding="utf-8").strip() if path.exists() else ""
+
+
+def schema_description() -> str:
+    lines = [f"Only query schema {settings.analytics_schema}.", "", "Tables:"]
+    for table in catalog():
+        columns = ", ".join(f'{column["name"]} {column["type"]}' for column in table["columns"])
+        lines.append(f'{settings.analytics_schema}.{table["name"]}({columns})')
+    business_rules = glossary()
+    if business_rules:
+        lines.extend(["", "Business definitions:", business_rules])
+    return "\n".join(lines)
 
 
 def public_schema() -> dict:
     return {
-        "schema": "analytics",
-        "tables": [
-            {"name": "categories", "columns": ["id", "name"]},
-            {"name": "customers", "columns": ["id", "registered_at", "region", "channel"]},
-            {"name": "products", "columns": ["id", "category_id", "name", "unit_cost", "list_price"]},
-            {"name": "orders", "columns": ["id", "customer_id", "ordered_at", "status", "region"]},
-            {
-                "name": "order_items",
-                "columns": ["id", "order_id", "product_id", "quantity", "unit_price", "discount_amount"],
-            },
-            {"name": "payments", "columns": ["id", "order_id", "method", "amount", "paid_at"]},
-            {"name": "refunds", "columns": ["id", "order_id", "amount", "reason", "refunded_at"]},
-        ],
-        "business_definitions": [
-            "有效订单：paid、shipped、completed",
-            "GMV：商品数量 × 成交单价 - 优惠金额",
-            "净销售额：GMV - 退款金额",
-            "复购客户：至少有两笔有效订单",
-        ],
+        "schema": settings.analytics_schema,
+        "tables": catalog(),
+        "business_glossary": glossary(),
     }
-

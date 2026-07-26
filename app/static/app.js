@@ -1,7 +1,66 @@
+const loginCard = document.querySelector("#login-card");
+const appShell = document.querySelector("#app-shell");
+const loginForm = document.querySelector("#login-form");
+const loginStatus = document.querySelector("#login-status");
 const question = document.querySelector("#question");
 const submit = document.querySelector("#submit");
 const statusText = document.querySelector("#status");
 const result = document.querySelector("#result");
+const emptyState = document.querySelector("#empty-state");
+let currentTraceId = null;
+
+async function api(url, options = {}) {
+  const response = await fetch(url, options);
+  let data = {};
+  try { data = await response.json(); } catch (_) {}
+  if (response.status === 401) {
+    showLogin();
+    throw new Error("登录已失效，请重新登录");
+  }
+  if (!response.ok) {
+    const detail = data.detail || {};
+    throw new Error(detail.message || detail || "请求失败");
+  }
+  return data;
+}
+
+function showLogin() {
+  loginCard.classList.remove("hidden");
+  appShell.classList.add("hidden");
+}
+
+async function showApp(user) {
+  loginCard.classList.add("hidden");
+  appShell.classList.remove("hidden");
+  document.querySelector("#current-user").textContent = user.username;
+  await Promise.all([loadHistory(), loadSchema()]);
+}
+
+loginForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  loginStatus.textContent = "正在登录…";
+  const payload = {
+    username: document.querySelector("#username").value.trim(),
+    password: document.querySelector("#password").value,
+  };
+  try {
+    const data = await api("/api/auth/login", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(payload),
+    });
+    loginForm.reset();
+    loginStatus.textContent = "";
+    await showApp(data.user);
+  } catch (error) {
+    loginStatus.textContent = error.message;
+  }
+});
+
+document.querySelector("#logout").addEventListener("click", async () => {
+  await fetch("/api/auth/logout", {method: "POST"});
+  showLogin();
+});
 
 document.querySelectorAll(".example").forEach((button) => {
   button.addEventListener("click", () => {
@@ -18,20 +77,15 @@ submit.addEventListener("click", async () => {
   }
   submit.disabled = true;
   statusText.textContent = "Agent 正在理解问题、生成并检查 SQL…";
-  result.classList.add("hidden");
   try {
-    const response = await fetch("/api/analytics/query", {
+    const data = await api("/api/analytics/query", {
       method: "POST",
       headers: {"Content-Type": "application/json"},
       body: JSON.stringify({question: value}),
     });
-    const data = await response.json();
-    if (!response.ok) {
-      const detail = data.detail || {};
-      throw new Error(detail.message || "查询失败");
-    }
     render(data);
-    statusText.textContent = "分析完成。";
+    statusText.textContent = "分析完成，结果已保存到查询历史。";
+    await loadHistory();
   } catch (error) {
     statusText.textContent = error.message;
   } finally {
@@ -39,17 +93,74 @@ submit.addEventListener("click", async () => {
   }
 });
 
-document.querySelector("#copy-sql").addEventListener("click", () => {
-  navigator.clipboard.writeText(document.querySelector("#sql").textContent);
+document.querySelector("#copy-sql").addEventListener("click", async () => {
+  await navigator.clipboard.writeText(document.querySelector("#sql").textContent);
+  statusText.textContent = "SQL 已复制。";
 });
 
+document.querySelector("#download-csv").addEventListener("click", () => {
+  if (currentTraceId) window.location.href = `/api/analytics/history/${currentTraceId}/csv`;
+});
+
+document.querySelector("#refresh-history").addEventListener("click", loadHistory);
+
+async function loadSchema() {
+  try {
+    const data = await api("/api/analytics/schema");
+    document.querySelector("#schema-badge").textContent = `${data.schema} · ${data.tables.length} 张只读表`;
+  } catch (error) {
+    document.querySelector("#schema-badge").textContent = "数据源不可用";
+  }
+}
+
+async function loadHistory() {
+  const list = document.querySelector("#history-list");
+  try {
+    const data = await api("/api/analytics/history?limit=30");
+    list.textContent = "";
+    if (!data.history.length) {
+      list.innerHTML = '<p class="muted">暂无查询记录</p>';
+      return;
+    }
+    data.history.forEach((trace) => {
+      const button = document.createElement("button");
+      button.className = "history-item";
+      const title = document.createElement("strong");
+      title.textContent = trace.question;
+      const meta = document.createElement("span");
+      meta.textContent = `#${trace.id} · ${trace.status === "success" ? `${trace.row_count} 行` : "失败"} · ${formatTime(trace.created_at)}`;
+      button.append(title, meta);
+      button.addEventListener("click", () => loadTrace(trace.id));
+      list.appendChild(button);
+    });
+  } catch (error) {
+    list.innerHTML = `<p class="error">${escapeHtml(error.message)}</p>`;
+  }
+}
+
+async function loadTrace(traceId) {
+  try {
+    const data = await api(`/api/analytics/history/${traceId}`);
+    if (data.trace.status !== "success") {
+      statusText.textContent = data.trace.error || "该查询执行失败";
+      return;
+    }
+    render(data.trace);
+    statusText.textContent = `已打开历史查询 #${traceId}`;
+  } catch (error) {
+    statusText.textContent = error.message;
+  }
+}
+
 function render(data) {
-  document.querySelector("#summary").textContent = data.summary;
-  document.querySelector("#sql").textContent = data.sql;
+  currentTraceId = data.trace_id || data.id;
+  document.querySelector("#summary").textContent = data.summary || "查询完成。";
+  document.querySelector("#sql").textContent = data.sql || "";
   document.querySelector("#meta").textContent =
-    `Trace #${data.trace_id} · ${data.execution_ms} ms · ${data.rows.length} 行 · SQL 尝试 ${data.attempts} 次`;
+    `Trace #${currentTraceId} · ${data.execution_ms ?? "-"} ms · ${data.rows.length} 行 · SQL 尝试 ${data.attempts} 次`;
   renderTable(data.columns, data.rows);
-  renderChart(data.chart, data.columns, data.rows);
+  renderChart(data.chart || inferChart(data.columns, data.rows), data.columns, data.rows);
+  emptyState.classList.add("hidden");
   result.classList.remove("hidden");
 }
 
@@ -70,6 +181,19 @@ function renderTable(columns, rows) {
       td.textContent = value ?? "";
     });
   });
+}
+
+function inferChart(columns, rows) {
+  if (!rows.length || columns.length < 2) return null;
+  const numeric = columns.map((_, index) => rows.some((row) => typeof row[index] === "number"));
+  let yIndex = numeric.lastIndexOf(true);
+  if (yIndex < 0) return null;
+  let xIndex = columns.findIndex((column, index) => index !== yIndex && !column.endsWith("_id") && !numeric[index]);
+  if (xIndex < 0) xIndex = columns.findIndex((_, index) => index !== yIndex);
+  if (xIndex < 0) return null;
+  const x = columns[xIndex], y = columns[yIndex];
+  const type = /(date|month|day|week|year|time)/i.test(x) ? "line" : "bar";
+  return {type, x, y, title: `${y} 按 ${x}`};
 }
 
 function renderChart(spec, columns, rows) {
@@ -129,7 +253,7 @@ function renderChart(spec, columns, rows) {
   }
   points.forEach((point, i) => {
     const x = left + (i + 0.5) * plotWidth / points.length;
-    add("text", {x, y: height - bottom + 22, class: "label", "text-anchor": "middle"}, point.label.slice(0, 8));
+    add("text", {x, y: height - bottom + 22, class: "label", "text-anchor": "middle"}, point.label.slice(0, 10));
   });
   add("text", {x: left - 8, y: top + 5, class: "label", "text-anchor": "end"}, formatNumber(max));
   add("text", {x: left - 8, y: height - bottom + 5, class: "label", "text-anchor": "end"}, "0");
@@ -139,3 +263,21 @@ function formatNumber(value) {
   return new Intl.NumberFormat("zh-CN", {notation: "compact", maximumFractionDigits: 1}).format(value);
 }
 
+function formatTime(value) {
+  return value ? new Date(value).toLocaleString("zh-CN", {month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit"}) : "";
+}
+
+function escapeHtml(value) {
+  const node = document.createElement("span");
+  node.textContent = value;
+  return node.innerHTML;
+}
+
+(async () => {
+  try {
+    const data = await api("/api/auth/me");
+    await showApp(data.user);
+  } catch (_) {
+    showLogin();
+  }
+})();
