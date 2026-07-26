@@ -139,9 +139,7 @@ async function loadHistory() {
       button.className = "history-item";
       const title = document.createElement("strong");
       title.textContent = trace.question;
-      const meta = document.createElement("span");
-      meta.textContent = `#${trace.id} · ${trace.status === "success" ? `${trace.row_count} 行` : "失败"} · ${formatTime(trace.created_at)}`;
-      button.append(title, meta);
+      button.append(title);
       button.addEventListener("click", () => loadTrace(trace.id));
       list.appendChild(button);
     });
