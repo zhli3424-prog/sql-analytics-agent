@@ -168,8 +168,6 @@ function render(data) {
   currentTraceId = data.trace_id || data.id;
   document.querySelector("#summary").textContent = data.summary || "查询完成。";
   document.querySelector("#sql").textContent = data.sql || "";
-  document.querySelector("#meta").textContent =
-    `Trace #${currentTraceId} · ${data.execution_ms ?? "-"} ms · ${data.rows.length} 行 · SQL 尝试 ${data.attempts} 次`;
   renderTable(data.columns, data.rows);
   renderChart(data.chart || inferChart(data.columns, data.rows), data.columns, data.rows);
   emptyState.classList.add("hidden");
