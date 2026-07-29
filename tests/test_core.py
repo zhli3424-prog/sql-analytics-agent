@@ -90,9 +90,19 @@ class SecurityTests(unittest.TestCase):
     def test_placeholder_security_configuration_is_rejected(self):
         fake = SimpleNamespace(
             app_password="change-this-app-password",
+            allow_weak_local_password=False,
             session_secret="change-this-session-secret",
         )
         with patch("app.security.settings", fake), self.assertRaises(RuntimeError):
+            validate_security_config()
+
+    def test_explicit_local_demo_mode_allows_password_one(self):
+        fake = SimpleNamespace(
+            app_password="1",
+            allow_weak_local_password=True,
+            session_secret="s" * 32,
+        )
+        with patch("app.security.settings", fake):
             validate_security_config()
 
 

@@ -39,6 +39,7 @@ class Settings:
     app_username: str = os.getenv("APP_USERNAME", "analyst")
     app_role: str = os.getenv("APP_ROLE", "admin")
     app_password: str = os.getenv("APP_PASSWORD", "change-this-app-password")
+    allow_weak_local_password: bool = _bool_env("ALLOW_WEAK_LOCAL_PASSWORD")
     session_secret: str = os.getenv("SESSION_SECRET", "change-this-session-secret")
     session_ttl_seconds: int = int(os.getenv("SESSION_TTL_SECONDS", "28800"))
     cookie_secure: bool = _bool_env("COOKIE_SECURE")

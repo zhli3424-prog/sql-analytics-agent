@@ -63,7 +63,9 @@ cd C:\Users\lzh\Documents\SQL数据分析Agent
 .\start.ps1
 ```
 
-脚本会创建 `.env`，并在缺少登录密码或 Session Secret 时自动生成。首次生成的登录密码只在终端显示一次，请保存到密码管理器。
+脚本会创建 `.env` 并自动生成 Session Secret。本地演示账号固定为 `analyst`，密码固定为 `1`，重启后不会变化。
+
+固定弱密码仅适用于 `127.0.0.1` 本机演示。对外部署前必须移除 Compose 中的 `APP_PASSWORD` 和 `ALLOW_WEAK_LOCAL_PASSWORD` 覆盖，改用至少 12 位的强密码。
 
 编辑模型 Key：
 

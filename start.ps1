@@ -35,12 +35,8 @@ function Set-RandomSecret {
     return $null
 }
 
-$initialPassword = Set-RandomSecret -Name "APP_PASSWORD" -Bytes 18
 $null = Set-RandomSecret -Name "SESSION_SECRET" -Bytes 32
-if ($initialPassword) {
-    Write-Host "Initial login: analyst / $initialPassword" -ForegroundColor Yellow
-    Write-Host "Save it in a password manager. It will not be printed again." -ForegroundColor Yellow
-}
+Write-Host "Local demo login: analyst / 1" -ForegroundColor Yellow
 
 docker compose -p sql-analytics-agent up -d --build
 

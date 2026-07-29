@@ -11,7 +11,9 @@ COOKIE_NAME = "sql_agent_session"
 
 
 def validate_security_config() -> None:
-    if len(settings.app_password) < 12 or settings.app_password.startswith("change-this-"):
+    if not settings.allow_weak_local_password and (
+        len(settings.app_password) < 12 or settings.app_password.startswith("change-this-")
+    ):
         raise RuntimeError("APP_PASSWORD must be replaced with at least 12 characters")
     if len(settings.session_secret) < 32 or settings.session_secret.startswith("change-this-"):
         raise RuntimeError("SESSION_SECRET must be replaced with at least 32 characters")
