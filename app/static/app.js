@@ -278,6 +278,54 @@ document.querySelector("#download-template").addEventListener("click", () => {
   if (target) window.location.href = `/api/admin/import/template/${target}`;
 });
 
+document.querySelector("#dataset-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const file = document.querySelector("#dataset-file").files[0];
+  const status = document.querySelector("#dataset-status");
+  if (!file) return;
+  const form = new FormData();
+  form.append("file", file);
+  status.textContent = "正在校验 7 张表及其字段…";
+  document.querySelector("#preview-dataset").disabled = true;
+  try {
+    const data = await api("/api/admin/import/dataset/preview", {method: "POST", body: form});
+    const counts = data.tables.map((item) => `${item.name} ${item.row_count} 行`).join("；");
+    document.querySelector("#dataset-summary").textContent =
+      `${data.filename} · 共 ${data.total_rows} 行：${counts}`;
+    document.querySelector("#dataset-confirm-card").classList.remove("hidden");
+    status.textContent = "全部校验通过。替换操作会删除当前 7 张分析表中的旧数据。";
+  } catch (error) {
+    document.querySelector("#dataset-confirm-card").classList.add("hidden");
+    status.textContent = error.message;
+  } finally {
+    document.querySelector("#preview-dataset").disabled = false;
+  }
+});
+
+document.querySelector("#replace-dataset").addEventListener("click", async () => {
+  const file = document.querySelector("#dataset-file").files[0];
+  const status = document.querySelector("#dataset-status");
+  if (!file) return;
+  if (!window.confirm("确认用这个 ZIP 完整替换当前 7 张分析表？此操作只在全部写入成功后提交。")) return;
+  const form = new FormData();
+  form.append("confirmation", "REPLACE");
+  form.append("file", file);
+  const button = document.querySelector("#replace-dataset");
+  button.disabled = true;
+  status.textContent = "正在事务替换整套数据，请勿关闭页面…";
+  try {
+    const data = await api("/api/admin/import/dataset/replace", {method: "POST", body: form});
+    status.textContent = `整套数据替换成功：${data.import.row_count} 行，记录 #${data.import.id}`;
+    document.querySelector("#dataset-confirm-card").classList.add("hidden");
+    document.querySelector("#dataset-form").reset();
+    await Promise.all([loadImportHistory(), loadSchema()]);
+  } catch (error) {
+    status.textContent = error.message;
+  } finally {
+    button.disabled = false;
+  }
+});
+
 document.querySelector("#refresh-imports").addEventListener("click", loadImportHistory);
 
 async function loadImportHistory() {

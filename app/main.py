@@ -21,7 +21,17 @@ from sqlalchemy.orm import Session
 from app.agent import AgentError, run_agent
 from app.config import settings
 from app.database import get_session, init_database, reader_engine
-from app.importing import ImportValidationError, TABLE_SPECS, parse_import, preview_rows, table_metadata, upsert_rows, validate_rows
+from app.importing import (
+    ImportValidationError,
+    TABLE_SPECS,
+    parse_dataset_archive,
+    parse_import,
+    preview_rows,
+    replace_dataset,
+    table_metadata,
+    upsert_rows,
+    validate_rows,
+)
 from app.models import ImportJob, QueryTrace
 from app.schema import catalog, public_schema, validate_data_source_config
 from app.security import COOKIE_NAME, create_session, read_session, validate_security_config, verify_login
@@ -48,7 +58,7 @@ async def lifespan(_: FastAPI):
     yield
 
 
-app = FastAPI(title="SQL Analytics Agent", version="2.0.0", lifespan=lifespan)
+app = FastAPI(title="SQL Analytics Agent", version="2.1.0", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
@@ -343,6 +353,68 @@ async def import_execute(
         job.error = "外键、唯一性或字段约束不满足"
         session.commit()
         raise HTTPException(status_code=409, detail=f"导入失败：{job.error}") from exc
+    except Exception as exc:
+        session.rollback()
+        job = session.get(ImportJob, job.id)
+        job.status = "failed"
+        job.error = str(exc)[:500]
+        session.commit()
+        raise
+
+
+@app.post("/api/admin/import/dataset/preview")
+async def dataset_preview(
+    file: UploadFile = File(...),
+    _: str = Depends(admin_user),
+) -> dict:
+    filename, content = await read_import_file(file)
+    try:
+        dataset = parse_dataset_archive(filename, content)
+    except ImportValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {
+        "filename": filename,
+        "tables": [{"name": name, "row_count": len(rows)} for name, rows in dataset.items()],
+        "total_rows": sum(len(rows) for rows in dataset.values()),
+    }
+
+
+@app.post("/api/admin/import/dataset/replace")
+async def dataset_replace(
+    confirmation: str = Form(...),
+    file: UploadFile = File(...),
+    username: str = Depends(admin_user),
+    session: Session = Depends(get_session),
+) -> dict:
+    if confirmation != "REPLACE":
+        raise HTTPException(status_code=422, detail="必须明确确认替换整套分析数据")
+    filename, content = await read_import_file(file)
+    try:
+        dataset = parse_dataset_archive(filename, content)
+    except ImportValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    job = ImportJob(
+        user_name=username,
+        filename=filename,
+        target_table="all (replace)",
+        row_count=0,
+        status="running",
+    )
+    session.add(job)
+    session.commit()
+    try:
+        replace_dataset(session, dataset)
+        job.status = "success"
+        job.row_count = sum(len(rows) for rows in dataset.values())
+        session.commit()
+        return {"import": import_public(job)}
+    except IntegrityError as exc:
+        session.rollback()
+        job = session.get(ImportJob, job.id)
+        job.status = "failed"
+        job.error = "整套数据的外键、唯一性或字段约束不满足，原数据未改变"
+        session.commit()
+        raise HTTPException(status_code=409, detail=f"替换失败：{job.error}") from exc
     except Exception as exc:
         session.rollback()
         job = session.get(ImportJob, job.id)

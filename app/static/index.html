@@ -108,7 +108,7 @@
         <div class="card">
           <p class="eyebrow">ADMIN DATA IMPORT</p>
           <h2>管理员数据导入</h2>
-          <p class="intro">先下载模板并按依赖顺序导入。系统会在写入前检查表头、类型、空值和行数；相同 ID 将更新，新的 ID 将新增。</p>
+          <p class="intro">单表导入用于补数：相同 ID 更新、新 ID 新增，不会删除旧数据。若要只保留自己上传的 7 张表，请使用下方“整套数据替换”。</p>
           <div id="import-order" class="badge-row"></div>
         </div>
 
@@ -130,6 +130,28 @@
             </div>
           </form>
           <p id="import-status" role="status" aria-live="polite"></p>
+        </div>
+
+        <div class="card">
+          <p class="eyebrow">ATOMIC DATASET REPLACE</p>
+          <h2>整套数据替换</h2>
+          <p class="intro">上传一个包含 categories.csv、customers.csv、products.csv、orders.csv、order_items.csv、payments.csv、refunds.csv 的 ZIP。系统会先校验全部文件，再在同一个事务中替换；任何一张表失败都会回滚并保留原数据。</p>
+          <form id="dataset-form">
+            <div class="import-grid">
+              <div>
+                <label for="dataset-file">7 张表 ZIP 数据包</label>
+                <input id="dataset-file" type="file" accept=".zip" required>
+              </div>
+              <div class="import-actions">
+                <button id="preview-dataset" type="submit">校验整套数据</button>
+              </div>
+            </div>
+          </form>
+          <p id="dataset-status" role="status" aria-live="polite"></p>
+          <div id="dataset-confirm-card" class="hidden">
+            <p id="dataset-summary" class="meta"></p>
+            <button id="replace-dataset" class="danger">确认替换现有 7 张表</button>
+          </div>
         </div>
 
         <div id="import-preview-card" class="card hidden">

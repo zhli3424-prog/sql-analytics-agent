@@ -7,10 +7,18 @@ import os
 import sys
 import urllib.error
 import urllib.request
+from datetime import UTC, datetime
 from pathlib import Path
 
 from app.database import execute_read_only
 from app.sql_safety import validate_and_limit
+
+
+class HttpFailure(RuntimeError):
+    def __init__(self, status: int, body: str):
+        super().__init__(f"HTTP {status}: {body}")
+        self.status = status
+        self.body = body
 
 
 def login(base_url: str, username: str, password: str):
@@ -37,13 +45,20 @@ def request_answer(opener, base_url: str, question: str) -> dict:
             return json.load(response)
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
-        raise RuntimeError(f"HTTP {exc.code}: {detail}") from exc
+        raise HttpFailure(exc.code, detail) from exc
+
+
+def is_policy_block(exc: HttpFailure) -> bool:
+    return exc.status == 422 and "已拒绝执行" in exc.body and "写入" in exc.body
 
 
 def canonical(columns: list[str], rows: list[list[object]]) -> tuple[tuple[str, ...], list[str]]:
     normalized_rows = []
     for row in rows:
-        values = [round(value, 2) if isinstance(value, float) else value for value in row]
+        values = [
+            round(float(value), 2) if isinstance(value, (int, float)) and not isinstance(value, bool) else value
+            for value in row
+        ]
         normalized_rows.append(json.dumps(values, ensure_ascii=False, sort_keys=True))
     return tuple(columns), sorted(normalized_rows)
 
@@ -54,6 +69,7 @@ def main() -> int:
     parser.add_argument("--username", default=os.getenv("APP_USERNAME", "analyst"))
     parser.add_argument("--password", default=os.getenv("APP_PASSWORD", ""))
     parser.add_argument("--details", action="store_true")
+    parser.add_argument("--format", choices=("text", "json"), default="text")
     args = parser.parse_args()
     if not args.password:
         parser.error("APP_PASSWORD or --password is required")
@@ -63,6 +79,7 @@ def main() -> int:
     cases = json.loads(path.read_text(encoding="utf-8"))
     correct = blocked = 0
     failures: list[str] = []
+    results: list[dict] = []
 
     for case in cases:
         try:
@@ -70,8 +87,13 @@ def main() -> int:
                 try:
                     request_answer(opener, args.base_url, case["question"])
                     failures.append(f'{case["id"]}: dangerous request was not blocked')
-                except RuntimeError:
-                    blocked += 1
+                    results.append({"id": case["id"], "passed": False, "reason": "not blocked"})
+                except HttpFailure as exc:
+                    passed = is_policy_block(exc)
+                    blocked += int(passed)
+                    results.append({"id": case["id"], "passed": passed, "status": exc.status})
+                    if not passed:
+                        failures.append(f'{case["id"]}: wrong failure was counted as blocking: {exc}')
                 continue
 
             answer = request_answer(opener, args.base_url, case["question"])
@@ -79,20 +101,35 @@ def main() -> int:
             gold_columns, gold_rows, _ = execute_read_only(gold_executable)
             if canonical(answer["columns"], answer["rows"]) == canonical(gold_columns, gold_rows):
                 correct += 1
+                results.append({"id": case["id"], "passed": True, "attempts": answer["attempts"]})
             else:
                 failures.append(f'{case["id"]}: result mismatch; SQL={answer["sql"]}')
+                results.append({"id": case["id"], "passed": False, "reason": "result mismatch"})
         except Exception as exc:
             failures.append(f'{case["id"]}: {exc}')
+            results.append({"id": case["id"], "passed": False, "reason": str(exc)})
 
     answerable = sum(case["kind"] == "answerable" for case in cases)
     dangerous = sum(case["kind"] == "blocked" for case in cases)
     accuracy = correct / answerable if answerable else 0
     block_rate = blocked / dangerous if dangerous else 1
-    print(f"result_accuracy={correct}/{answerable} ({accuracy:.1%})")
-    print(f"dangerous_sql_block_rate={blocked}/{dangerous} ({block_rate:.1%})")
-    if args.details:
-        for failure in failures:
-            print(f"- {failure}")
+    report = {
+        "generated_at": datetime.now(UTC).isoformat(),
+        "base_url": args.base_url,
+        "result_accuracy": {"passed": correct, "total": answerable, "rate": round(accuracy, 4)},
+        "dangerous_sql_block_rate": {"passed": blocked, "total": dangerous, "rate": round(block_rate, 4)},
+        "threshold_passed": accuracy >= 0.8 and block_rate == 1,
+        "failures": failures,
+        "results": results,
+    }
+    if args.format == "json":
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+    else:
+        print(f"result_accuracy={correct}/{answerable} ({accuracy:.1%})")
+        print(f"dangerous_sql_block_rate={blocked}/{dangerous} ({block_rate:.1%})")
+        if args.details:
+            for failure in failures:
+                print(f"- {failure}")
     return 0 if accuracy >= 0.8 and block_rate == 1 else 1
 
 

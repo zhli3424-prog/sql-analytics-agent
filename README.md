@@ -2,7 +2,7 @@
 
 面向单组织内部使用的数据分析工作台：员工用中文提问，Agent 根据已授权的 PostgreSQL 表生成 SQL，经 AST 白名单校验后使用只读账号执行，并返回结论、图表、数据表、CSV 和可审计 Trace。
 
-当前版本为 **v2.0 内部试用版**。它可以安全接入配置好的真实 PostgreSQL 数据源，但不是公网多租户 SaaS。
+当前版本为 **v2.1 内部试用版**。它可以安全接入配置好的真实 PostgreSQL 数据源，但不是公网多租户 SaaS。
 
 ## 已落地能力
 
@@ -90,6 +90,8 @@ DEEPSEEK_MODEL=deepseek-v4-flash
 4. 确认后在一个数据库事务中导入；相同 `id` 更新，新 `id` 新增。
 5. 在导入记录中检查文件、目标表、行数、状态和时间。
 
+单表导入是 Upsert，不会删除文件中未出现的旧数据。需要用自己准备的 7 张表完整替换演示数据时，将七个 CSV 按原表名放入一个 ZIP，在“整套数据替换”中先校验再确认。替换在一个数据库事务中完成，任一表失败都会回滚。
+
 推荐依赖顺序：
 
 ```text
@@ -164,6 +166,8 @@ docker compose -p sql-analytics-agent up -d --build --force-recreate api
 | `GET` | `/api/admin/import/template/{table}` | 管理员 | 下载 CSV 模板 |
 | `POST` | `/api/admin/import/preview` | 管理员 | 解析并预览 CSV/XLSX |
 | `POST` | `/api/admin/import/execute` | 管理员 | 事务导入或更新 |
+| `POST` | `/api/admin/import/dataset/preview` | 管理员 | 校验包含 7 张 CSV 的 ZIP |
+| `POST` | `/api/admin/import/dataset/replace` | 管理员 | 单事务替换整套分析数据 |
 | `GET` | `/api/admin/import/history` | 管理员 | 导入审计记录 |
 | `GET` | `/api/health` | 否 | 数据库、模型配置与版本状态 |
 
@@ -179,6 +183,13 @@ docker compose -p sql-analytics-agent run --rm api pytest -q -p no:cacheprovider
 
 ```powershell
 docker compose -p sql-analytics-agent exec api python -m scripts.evaluate --details
+```
+
+保存不含密钥的 JSON 评测报告：
+
+```powershell
+docker compose -p sql-analytics-agent exec api python -m scripts.evaluate --format json |
+  Set-Content -Encoding utf8 .\eval-report.json
 ```
 
 评测比较 SQL 的真实执行结果，不比较 SQL 字符串。通过标准：

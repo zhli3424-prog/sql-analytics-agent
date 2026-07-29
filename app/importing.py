@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import io
+import zipfile
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
@@ -9,6 +10,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from openpyxl import load_workbook
+from sqlalchemy import delete
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -138,6 +140,47 @@ class ImportValidationError(ValueError):
     pass
 
 
+def parse_dataset_archive(filename: str, content: bytes) -> dict[str, list[dict[str, Any]]]:
+    if Path(filename).suffix.lower() != ".zip":
+        raise ImportValidationError("整套数据必须上传 .zip 文件")
+    try:
+        archive = zipfile.ZipFile(io.BytesIO(content))
+    except zipfile.BadZipFile as exc:
+        raise ImportValidationError("ZIP 文件损坏或格式不受支持") from exc
+
+    with archive:
+        files: dict[str, zipfile.ZipInfo] = {}
+        for info in archive.infolist():
+            if info.is_dir():
+                continue
+            name = Path(info.filename).name.lower()
+            if name in files:
+                raise ImportValidationError(f"ZIP 中存在重复文件：{name}")
+            files[name] = info
+
+        required = {f"{table}.csv" for table in TABLE_SPECS}
+        missing = required - set(files)
+        unknown = set(files) - required
+        if missing:
+            raise ImportValidationError(f"ZIP 缺少文件：{', '.join(sorted(missing))}")
+        if unknown:
+            raise ImportValidationError(f"ZIP 包含无关文件：{', '.join(sorted(unknown))}")
+        if sum(info.file_size for info in files.values()) > settings.max_import_bytes * len(TABLE_SPECS):
+            raise ImportValidationError("ZIP 解压后的数据文件过大")
+
+        dataset: dict[str, list[dict[str, Any]]] = {}
+        for table_name in TABLE_SPECS:
+            member_name = f"{table_name}.csv"
+            headers, raw_rows = parse_import(member_name, archive.read(files[member_name]))
+            dataset[table_name] = validate_rows(
+                table_name,
+                headers,
+                raw_rows,
+                allow_empty=table_name in {"payments", "refunds"},
+            )
+        return dataset
+
+
 def parse_import(filename: str, content: bytes) -> tuple[list[str], list[list[Any]]]:
     suffix = Path(filename).suffix.lower()
     if suffix == ".csv":
@@ -187,7 +230,12 @@ def read_xlsx(content: bytes) -> tuple[list[str], list[list[Any]]]:
         workbook.close()
 
 
-def validate_rows(table_name: str, headers: list[str], raw_rows: list[list[Any]]) -> list[dict[str, Any]]:
+def validate_rows(
+    table_name: str,
+    headers: list[str],
+    raw_rows: list[list[Any]],
+    allow_empty: bool = False,
+) -> list[dict[str, Any]]:
     spec = TABLE_SPECS.get(table_name)
     if spec is None:
         raise ImportValidationError("目标表不允许导入")
@@ -229,7 +277,7 @@ def validate_rows(table_name: str, headers: list[str], raw_rows: list[list[Any]]
             break
     if errors:
         raise ImportValidationError("；".join(errors))
-    if not rows:
+    if not rows and not allow_empty:
         raise ImportValidationError("没有可导入的数据行")
     if len(rows) > settings.max_import_rows:
         raise ImportValidationError(f"单次最多导入 {settings.max_import_rows} 行")
@@ -250,6 +298,16 @@ def upsert_rows(session: Session, table_name: str, rows: list[dict[str, Any]]) -
             if column != "id"
         }
         session.execute(statement.on_conflict_do_update(index_elements=[spec.model.id], set_=updates))
+
+
+def replace_dataset(session: Session, dataset: dict[str, list[dict[str, Any]]]) -> None:
+    for table_name in reversed(TABLE_SPECS):
+        session.execute(delete(TABLE_SPECS[table_name].model))
+    for table_name in TABLE_SPECS:
+        rows = dataset[table_name]
+        model = TABLE_SPECS[table_name].model
+        for offset in range(0, len(rows), 1000):
+            session.execute(insert(model), rows[offset : offset + 1000])
 
 
 def table_metadata() -> list[dict[str, Any]]:

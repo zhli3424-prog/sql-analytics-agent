@@ -42,5 +42,23 @@ if ($initialPassword) {
     Write-Host "Save it in a password manager. It will not be printed again." -ForegroundColor Yellow
 }
 
-docker compose -p sql-analytics-agent up --build
+docker compose -p sql-analytics-agent up -d --build
+
+Write-Host "Waiting for SQL Analytics Agent..." -ForegroundColor Cyan
+$deadline = (Get-Date).AddSeconds(90)
+do {
+    try {
+        $health = Invoke-RestMethod -Uri "http://127.0.0.1:8010/api/health" -TimeoutSec 3
+        if ($health.status -eq "ok") {
+            Write-Host "Service is ready: http://127.0.0.1:8010" -ForegroundColor Green
+            Write-Host "The containers keep running after this window closes." -ForegroundColor Green
+            return
+        }
+    } catch {
+        Start-Sleep -Seconds 2
+    }
+} while ((Get-Date) -lt $deadline)
+
+docker compose -p sql-analytics-agent logs --tail 80 api
+throw "Service did not become healthy within 90 seconds."
 
