@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: analytics_agent
+          POSTGRES_USER: analytics_owner
+          POSTGRES_PASSWORD: ci-owner-password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U analytics_owner -d analytics_agent"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      DATABASE_URL: postgresql+psycopg://analytics_owner:ci-owner-password@127.0.0.1:5432/analytics_agent
+      ANALYTICS_READ_URL: postgresql+psycopg://analytics_reader:ci-reader-password@127.0.0.1:5432/analytics_agent
+      APP_PASSWORD: ci-strong-password
+      SESSION_SECRET: ci-session-secret-at-least-32-characters
+      RUN_DATABASE_TESTS: "1"
+      SEED_DEMO_DATA: "false"
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install -r requirements.txt
+      - name: Create read-only database role
+        run: |
+          python - <<'PY'
+          import psycopg
+          with psycopg.connect(
+              "postgresql://analytics_owner:ci-owner-password@127.0.0.1:5432/analytics_agent",
+              autocommit=True,
+          ) as connection:
+              connection.execute("CREATE ROLE analytics_reader LOGIN PASSWORD 'ci-reader-password'")
+          PY
+      - run: python -m compileall -q app scripts tests
+      - run: pytest -q -p no:cacheprovider

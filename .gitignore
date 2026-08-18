@@ -1,6 +1,12 @@
 .env
+.venv/
+venv/
 __pycache__/
 *.py[cod]
 .pytest_cache/
 .coverage
+htmlcov/
+eval-report.json
+.idea/
+.vscode/
 
